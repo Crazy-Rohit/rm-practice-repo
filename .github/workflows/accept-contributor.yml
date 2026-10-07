@@ -1,0 +1,45 @@
+name: Accept contributor file
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  accept:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge a single new contributor file
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (pr.base.ref !== 'main') return;
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+            const expected = `contributors/${pr.user.login}.md`;
+            const file = files[0] || {};
+            const ok = files.length === 1
+              && file.filename === expected
+              && file.status === 'added'
+              && file.additions > 0
+              && file.additions <= 20;
+            if (!ok) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: `This pull request was not merged. It must add only \`${expected}\`, and that file must be new and short.`,
+              });
+              return;
+            }
+            await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              merge_method: 'squash',
+            });
